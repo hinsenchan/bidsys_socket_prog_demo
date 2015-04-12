@@ -1,0 +1,172 @@
+/* This page contains a client program that can request a file from the server program
+*  on the next page. The server responds by sending the whole file.
+*/
+
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <string.h>                                                    //memset
+#include <stdlib.h>                                                    //exit
+#include <stdio.h>                                                     //printf
+
+#define BUF_SIZE 4096                                                  //block transfer size
+
+int main(int argc, char **argv){
+   int c, s, bytes;
+   char buf[BUF_SIZE];				                                   //buffer for incoming file
+   struct hostent *h;                                                  //info about server
+   struct sockaddr_in channel;                                         //holds IP address
+   char *server_command, *itemName;
+   int server_port, server_command_num, itemID, minBid, biddingPrice;
+
+   //Handle input errors
+   char *usagemsg = "\n-- USAGE: client servername/hostname port command parameter --\n\n   command parameter(s):\n      post itemname minbid\n      list\n      bid itemID biddingprice\n";
+   if(argc < 4 || argc > 6){
+      fatal(usagemsg);
+   }
+
+   h = gethostbyname(argv[1]);                                         //look up host's IP address
+   if (!h) fatal("gethostbyname failed");
+
+   //Handle port input error
+   if (sscanf(argv[2],"%d",&server_port) < 1 || server_port < 1024 || server_port > 65555){
+		   fatal("port number must be between 1024 - 65555");
+   }
+
+   //Store command and parameters
+   if (strcmp(argv[3],"post") == 0){
+	  int i;
+	  char postmsg[] = "\n -- USAGE parameter minBid must be an integer --\n";
+	  char postmsg2[] = "\n -- USAGE parameter itemName must be alphanumeric and under 16 characters --\n";
+	  server_command_num = 1;
+
+	  //Handle input errors for parameters
+      if (argc < 6){
+         fatal(usagemsg);
+      }
+
+      if (strlen(argv[4]) > 16){
+			 fatal(postmsg2);
+      }
+	  for (i=0; i<strlen(argv[4]); i++){
+         if (!isalnum(argv[4][i])){
+			 fatal(postmsg2);
+		 }
+	  }
+      itemName = argv[4];
+
+      for (i=0; i<strlen(argv[5]); i++){
+         if (!isdigit(argv[5][i])){
+            fatal(postmsg);
+         }
+      }
+      sscanf(argv[5],"%d",&minBid);
+   }
+   else if (strcmp(argv[3],"list") == 0){
+	  if (argc > 4){
+	     fatal(usagemsg);
+	  }
+      server_command_num = 2;
+   }
+   else if (strcmp(argv[3],"bid") == 0){
+	  int i;
+	  char postmsg[] = "\n -- USAGE parameter itemID must be an integer --\n";
+	  char postmsg2[] = "\n -- USAGE parameter biddingPrice must be an integer --\n";
+	  server_command_num = 3;
+
+	  //Handle input errors for parameters
+      if (argc < 6){
+         fatal(usagemsg);
+      }
+
+	  for (i=0; i<strlen(argv[4]); i++){
+         if (!isdigit(argv[4][i])){
+            fatal(postmsg);
+         }
+      }
+      for (i=0; i<strlen(argv[5]); i++){
+         if (!isdigit(argv[5][i])){
+            fatal(postmsg2);
+         }
+      }
+      sscanf(argv[4],"%d",&itemID);
+      sscanf(argv[5],"%d",&biddingPrice);
+   }
+   else{
+	   fatal(usagemsg);
+   }
+
+   s= socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+   if (s < 0) fatal("socket");
+   memset(&channel, 0, sizeof(channel));
+   channel.sin_family = AF_INET;
+   memcpy(&channel.sin_addr.s_addr, h->h_addr, h->h_length);
+   channel.sin_port = htons(server_port);
+
+   c = connect(s, (struct sockaddr *) &channel, sizeof(channel));
+   if (c < 0) fatal("connect failed");
+
+   //Connection is now established.
+
+   //Go get the file and write it to standard output.
+   while (1){
+      //Receive and print connected message
+      memset(buf, 0, BUF_SIZE);
+      recv(s, buf, BUF_SIZE, 0);
+      printf("\n%s\n",buf);
+
+      //Send auction command
+      memset(buf, 0, BUF_SIZE);
+      sprintf(buf,"%d",server_command_num);
+      send(s, buf, BUF_SIZE, 0);
+      //printf("Server command: %s\n",buf);
+
+      if (server_command_num == 1){
+         //Send item name
+         memset(buf, 0, BUF_SIZE);
+         memcpy(buf,itemName,strlen(itemName));
+         send(s, buf, BUF_SIZE, 0);
+         //Send minimum bid
+         memset(buf, 0, BUF_SIZE);
+         sprintf(buf,"%d",minBid);
+         send(s, buf, BUF_SIZE, 0);
+         //Print return status
+         memset(buf, 0, BUF_SIZE);
+         recv(s, buf, BUF_SIZE, 0);
+         printf("%s", buf);
+      }
+      else if (server_command_num == 2){
+         //Print return status
+    	 memset(buf, 0, BUF_SIZE);
+         recv(s, buf, BUF_SIZE, 0);
+         printf("%s",buf);
+      }
+      else if (server_command_num == 3){
+         //Send item id
+         memset(buf,0,BUF_SIZE);
+         sprintf(buf,"%d",itemID);
+         send(s, buf, BUF_SIZE, 0);
+         //Send bidding price
+         memset(buf,0,BUF_SIZE);
+         sprintf(buf,"%d",biddingPrice);
+         send(s, buf, BUF_SIZE, 0);
+         //Print return status
+         memset(buf, 0, BUF_SIZE);
+         recv(s, buf, BUF_SIZE, 0);
+         printf("%s", buf);
+      }
+
+      //Goodbye message
+      memset(buf, 0, BUF_SIZE);
+      recv(s, buf, BUF_SIZE, 0);
+      printf("%s\n", buf);
+
+      exit(0);
+   }
+}
+
+fatal(char *string){
+   printf("%s\n", string);
+   exit(1);
+}
